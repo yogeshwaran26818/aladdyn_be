@@ -1215,6 +1215,51 @@ app.get('/api/verify-installations', async (req, res) => {
   }
 })
 
+// Debug specific shop script tag
+app.get('/api/debug-shop/:shop', async (req, res) => {
+  try {
+    const { shop } = req.params
+    
+    // Check database records
+    const shopRecord = await Shop.findOne({ shopify_domain: shop })
+    const scriptTag = await ScriptTag.findOne({ shopify_domain: shop })
+    
+    if (!shopRecord) {
+      return res.json({ success: false, error: 'Shop not found in database' })
+    }
+    
+    // Check actual script tags in Shopify
+    const response = await fetch(`https://${shop}/admin/api/2025-07/script_tags.json`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+    
+    const shopifyScriptTags = await response.json()
+    
+    res.json({
+      success: true,
+      shop,
+      database: {
+        hasShopRecord: !!shopRecord,
+        hasScriptTagRecord: !!scriptTag,
+        scriptTagRecord: scriptTag
+      },
+      shopify: {
+        scriptTags: shopifyScriptTags.script_tags || [],
+        totalScriptTags: shopifyScriptTags.script_tags?.length || 0
+      },
+      testUrls: {
+        storefront: `https://${shop}`,
+        widget: `https://aladdyn-be.vercel.app/chatbot-widget.js?shop=${encodeURIComponent(shop)}`
+      }
+    })
+  } catch (error) {
+    console.error('Debug shop error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
 
 
 
@@ -1331,11 +1376,17 @@ app.get('/chatbot-widget.js', async (req, res) => {
       return res.status(400).send('// Error: Shop parameter required')
     }
 
-    // Get shop record to verify it exists
-    const shopRecord = await Shop.findOne({ shopify_domain: shop })
-    if (!shopRecord) {
-      return res.status(404).send('// Error: Shop not found')
+    // Try to connect to database and get shop record, but continue even if it fails
+    let shopRecord = null
+    try {
+      await connectDB()
+      shopRecord = await Shop.findOne({ shopify_domain: shop })
+    } catch (dbError) {
+      console.warn('Database connection failed for widget, continuing anyway:', dbError.message)
     }
+
+    // Continue serving widget even if shop not found in database
+    // This allows the widget to work for testing purposes
 
     // Get the API base URL dynamically
     const protocol = req.protocol
