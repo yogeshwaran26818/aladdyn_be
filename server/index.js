@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import Shop from '../models/Shop.js'
 import Customer from '../models/Customer.js'
+import ScriptTag from '../models/ScriptTag.js'
 
 
 
@@ -353,9 +354,26 @@ app.get('/api/auth', async (req, res) => {
         const scriptTagResult = await scriptTagResponse.json()
 
         if (scriptTagResult.data?.scriptTagCreate?.scriptTag) {
+          const scriptTag = scriptTagResult.data.scriptTagCreate.scriptTag
+          
+          // Store script tag info in database for verification
+          await ScriptTag.findOneAndUpdate(
+            { shopify_domain: shop },
+            {
+              shopify_domain: shop,
+              script_tag_id: scriptTag.id,
+              script_url: scriptTagUrl,
+              status: 'active',
+              updated_at: new Date()
+            },
+            { upsert: true, new: true }
+          )
+          
           console.log('✅ Chatbot script tag created successfully!')
           console.log(`   Script URL: ${scriptTagUrl}`)
+          console.log(`   Script Tag ID: ${scriptTag.id}`)
           console.log(`🤖 CHATBOT ADDED FOR SHOP: ${shop}`)
+          console.log(`📝 STORED IN DATABASE FOR VERIFICATION`)
         } else {
           const userErrors = scriptTagResult.data?.scriptTagCreate?.userErrors || []
           const errors = scriptTagResult.errors || []
@@ -1164,6 +1182,35 @@ app.post('/api/store-customer-auth', async (req, res) => {
     res.json({ success: true, message: 'Customer auth credentials stored' })
   } catch (error) {
     console.error('Store customer auth error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// Verify script tag installations
+app.get('/api/verify-installations', async (req, res) => {
+  try {
+    const scriptTags = await ScriptTag.find({}).sort({ created_at: -1 })
+    const shops = await Shop.find({}).select('shopify_domain storefront_access_token created_at')
+    
+    const installations = scriptTags.map(tag => {
+      const shop = shops.find(s => s.shopify_domain === tag.shopify_domain)
+      return {
+        shop: tag.shopify_domain,
+        scriptTagId: tag.script_tag_id,
+        scriptUrl: tag.script_url,
+        status: tag.status,
+        installedAt: tag.created_at,
+        hasStorefrontToken: !!shop?.storefront_access_token
+      }
+    })
+
+    res.json({
+      success: true,
+      totalInstallations: installations.length,
+      installations
+    })
+  } catch (error) {
+    console.error('Verify installations error:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
