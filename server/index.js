@@ -1618,13 +1618,13 @@ INSTRUCTIONS:
   }
 })
 
-// Serve static files from frontend dist
-app.use(express.static(path.join(__dirname, '../../fe/dist')))
+// Serve static files from local dist folder
+app.use(express.static(path.join(__dirname, '../dist')))
 
 // Serve React app for all non-API routes
 app.use((req, res) => {
   if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '../../fe/dist/index.html'))
+    res.sendFile(path.join(__dirname, '../dist/index.html'))
   } else {
     res.status(404).json({ error: 'API endpoint not found' })
   }
