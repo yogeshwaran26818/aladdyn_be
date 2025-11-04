@@ -1393,175 +1393,98 @@ app.get('/chatbot-widget.js', async (req, res) => {
     const host = req.get('host')
     const apiBaseUrl = `${protocol}://${host}/api`
 
-    // Generate the chatbot widget JavaScript
-    const widgetScript = `
-(function() {
+    // Generate the chatbot widget JavaScript with proper escaping
+    const widgetScript = `(function() {
   'use strict';
   
-  // Configuration
   const CONFIG = {
     shop: '${shop}',
     apiBaseUrl: '${process.env.APP_URL || apiBaseUrl}',
     widgetId: 'aladdyn-chatbot-widget'
   };
 
-  // Create widget HTML structure
   function createWidgetHTML() {
-    if (document.getElementById(CONFIG.widgetId)) {
-      return; // Widget already exists
-    }
+    if (document.getElementById(CONFIG.widgetId)) return;
 
-    const widgetHTML = \`
-      <div id="\${CONFIG.widgetId}" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-        <!-- Chat Button -->
-        <div id="aladdyn-chat-button" style="width: 60px; height: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; transition: transform 0.2s;">
-          <svg width="30" height="30" fill="white" viewBox="0 0 24 24">
-            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
-          </svg>
-        </div>
-        
-        <!-- Chat Window -->
-        <div id="aladdyn-chat-window" style="position: absolute; bottom: 80px; right: 0; width: 380px; height: 500px; background: white; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); display: none; flex-direction: column; overflow: hidden;">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Genie Assistant</h3>
-              <p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.9;">Ask me anything!</p>
-            </div>
-            <button id="aladdyn-close-btn" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px; padding: 0; width: 30px; height: 30px;">&times;</button>
-          </div>
-          
-          <!-- Messages Container -->
-          <div id="aladdyn-messages" style="flex: 1; overflow-y: auto; padding: 16px; background: #f8f9fa;">
-            <div style="background: #e9ecef; padding: 12px; border-radius: 12px; margin-bottom: 12px;">
-              <p style="margin: 0; color: #495057; font-size: 14px;">Hello! I'm Genie, your AI shopping assistant. I can help you find products, answer questions about the store, and more. What would you like to know?</p>
-            </div>
-          </div>
-          
-          <!-- Input Area -->
-          <div style="padding: 16px; background: white; border-top: 1px solid #e9ecef;">
-            <form id="aladdyn-chat-form" style="display: flex; gap: 8px;">
-              <input 
-                type="text" 
-                id="aladdyn-chat-input" 
-                placeholder="Ask me anything..."
-                style="flex: 1; padding: 12px; border: 2px solid #e9ecef; border-radius: 24px; font-size: 14px; outline: none; transition: border-color 0.2s;"
-                onfocus="this.style.borderColor='#667eea'"
-                onblur="this.style.borderColor='#e9ecef'"
-              />
-              <button 
-                type="submit"
-                style="width: 44px; height: 44px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s;"
-                onmouseover="this.style.transform='scale(1.1)'"
-                onmouseout="this.style.transform='scale(1)'"
-              >
-                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    \`;
-
-    document.body.insertAdjacentHTML('beforeend', widgetHTML);
+    const widget = document.createElement('div');
+    widget.id = CONFIG.widgetId;
+    widget.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+    
+    widget.innerHTML = '<div id="aladdyn-chat-button" style="width: 60px; height: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; transition: transform 0.2s;"><svg width="30" height="30" fill="white" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg></div><div id="aladdyn-chat-window" style="position: absolute; bottom: 80px; right: 0; width: 380px; height: 500px; background: white; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); display: none; flex-direction: column; overflow: hidden;"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; display: flex; justify-content: space-between; align-items: center;"><div><h3 style="margin: 0; font-size: 18px; font-weight: 600;">Genie Assistant</h3><p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.9;">Ask me anything!</p></div><button id="aladdyn-close-btn" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px; padding: 0; width: 30px; height: 30px;">&times;</button></div><div id="aladdyn-messages" style="flex: 1; overflow-y: auto; padding: 16px; background: #f8f9fa;"><div style="background: #e9ecef; padding: 12px; border-radius: 12px; margin-bottom: 12px;"><p style="margin: 0; color: #495057; font-size: 14px;">Hello! I\'m Genie, your AI shopping assistant. I can help you find products, answer questions about the store, and more. What would you like to know?</p></div></div><div style="padding: 16px; background: white; border-top: 1px solid #e9ecef;"><form id="aladdyn-chat-form" style="display: flex; gap: 8px;"><input type="text" id="aladdyn-chat-input" placeholder="Ask me anything..." style="flex: 1; padding: 12px; border: 2px solid #e9ecef; border-radius: 24px; font-size: 14px; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor=\'#667eea\'" onblur="this.style.borderColor=\'#e9ecef\'"/><button type="submit" style="width: 44px; height: 44px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'"><svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button></form></div></div>';
+    
+    document.body.appendChild(widget);
   }
 
-  // Add message to chat
-  function addMessage(text, isBot = true) {
-    const messagesContainer = document.getElementById('aladdyn-messages');
-    if (!messagesContainer) return;
-
-    const messageDiv = document.createElement('div');
-    messageDiv.style.cssText = \`margin-bottom: 12px; display: flex; justify-content: \${isBot ? 'flex-start' : 'flex-end'};\`;
+  function addMessage(text, isBot) {
+    const messages = document.getElementById('aladdyn-messages');
+    if (!messages) return;
     
-    const messageBubble = document.createElement('div');
-    messageBubble.style.cssText = \`max-width: 80%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; \${isBot ? 'background: #e9ecef; color: #495057;' : 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;'}\`;
-    messageBubble.textContent = text;
+    const div = document.createElement('div');
+    div.style.cssText = 'margin-bottom: 12px; display: flex; justify-content: ' + (isBot ? 'flex-start' : 'flex-end') + ';';
     
-    messageDiv.appendChild(messageBubble);
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    const bubble = document.createElement('div');
+    bubble.style.cssText = 'max-width: 80%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5; ' + (isBot ? 'background: #e9ecef; color: #495057;' : 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;');
+    bubble.textContent = text;
+    
+    div.appendChild(bubble);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
   }
 
-  // Send message to backend
   async function sendMessage(message) {
     try {
       addMessage(message, false);
       
-      const response = await fetch(\`\${CONFIG.apiBaseUrl}/chatbot/storefront\`, {
+      const response = await fetch(CONFIG.apiBaseUrl + '/chatbot/storefront', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: message,
-          shop: CONFIG.shop
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message, shop: CONFIG.shop })
       });
-
-      const data = await response.json();
       
-      if (data.success && data.response) {
-        addMessage(data.response, true);
-      } else {
-        addMessage('Sorry, I encountered an error. Please try again.', true);
-      }
+      const data = await response.json();
+      addMessage(data.success && data.response ? data.response : 'Sorry, I encountered an error. Please try again.', true);
     } catch (error) {
       console.error('Chatbot error:', error);
       addMessage('Sorry, I\'m having trouble connecting. Please try again.', true);
     }
   }
 
-  // Initialize widget
   function initWidget() {
     createWidgetHTML();
     
-    const chatButton = document.getElementById('aladdyn-chat-button');
-    const chatWindow = document.getElementById('aladdyn-chat-window');
+    const button = document.getElementById('aladdyn-chat-button');
+    const window = document.getElementById('aladdyn-chat-window');
     const closeBtn = document.getElementById('aladdyn-close-btn');
-    const chatForm = document.getElementById('aladdyn-chat-form');
-    const chatInput = document.getElementById('aladdyn-chat-input');
+    const form = document.getElementById('aladdyn-chat-form');
+    const input = document.getElementById('aladdyn-chat-input');
 
-    // Toggle chat window
-    chatButton.addEventListener('click', () => {
-      const isVisible = chatWindow.style.display !== 'none';
-      chatWindow.style.display = isVisible ? 'none' : 'flex';
-      chatButton.style.transform = isVisible ? 'scale(1)' : 'scale(0.9)';
-      if (!isVisible) {
-        chatInput.focus();
-      }
-    });
+    button.onclick = () => {
+      const isVisible = window.style.display !== 'none';
+      window.style.display = isVisible ? 'none' : 'flex';
+      button.style.transform = isVisible ? 'scale(1)' : 'scale(0.9)';
+      if (!isVisible) input.focus();
+    };
 
-    // Close button
-    closeBtn.addEventListener('click', () => {
-      chatWindow.style.display = 'none';
-      chatButton.style.transform = 'scale(1)';
-    });
+    closeBtn.onclick = () => {
+      window.style.display = 'none';
+      button.style.transform = 'scale(1)';
+    };
 
-    // Submit form
-    chatForm.addEventListener('submit', (e) => {
+    form.onsubmit = (e) => {
       e.preventDefault();
-      const message = chatInput.value.trim();
-      if (message) {
-        sendMessage(message);
-        chatInput.value = '';
+      const msg = input.value.trim();
+      if (msg) {
+        sendMessage(msg);
+        input.value = '';
       }
-    });
+    };
 
-    // Button hover effect
-    chatButton.addEventListener('mouseenter', () => {
-      chatButton.style.transform = 'scale(1.1)';
-    });
-    chatButton.addEventListener('mouseleave', () => {
-      if (chatWindow.style.display === 'none') {
-        chatButton.style.transform = 'scale(1)';
-      }
-    });
+    button.onmouseenter = () => button.style.transform = 'scale(1.1)';
+    button.onmouseleave = () => {
+      if (window.style.display === 'none') button.style.transform = 'scale(1)';
+    };
   }
 
-  // Wait for DOM to be ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initWidget);
   } else {
