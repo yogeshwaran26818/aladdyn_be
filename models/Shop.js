@@ -18,6 +18,16 @@ const shopSchema = new mongoose.Schema({
   },
   customer_account_client_secret: {
     type: String
+  },
+  widget_injected: {
+    type: Boolean,
+    default: false
+  },
+  widget_injected_at: {
+    type: Date
+  },
+  widget_removed_at: {
+    type: Date
   }
 }, {
   timestamps: true

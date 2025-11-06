@@ -239,6 +239,75 @@ app.get('/api/auth', async (req, res) => {
 
 
 
+    // Auto-inject widget after successful installation
+    try {
+      console.log('Auto-injecting widget...')
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? 'https://aladdynbe-production.up.railway.app'
+        : `http://localhost:${PORT}`
+      
+      // Get the main theme
+      const themesResponse = await fetch(`https://${shop}/admin/api/2025-07/themes.json`, {
+        headers: {
+          'X-Shopify-Access-Token': tokenData.access_token
+        }
+      })
+
+      const themesData = await themesResponse.json()
+      const mainTheme = themesData.themes.find(theme => theme.role === 'main')
+
+      if (mainTheme) {
+        // Get theme.liquid file
+        const themeFileResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json?asset[key]=layout/theme.liquid`, {
+          headers: {
+            'X-Shopify-Access-Token': tokenData.access_token
+          }
+        })
+
+        const themeFileData = await themeFileResponse.json()
+        let themeContent = themeFileData.asset.value
+
+        // Check if widget is not already injected
+        if (!themeContent.includes('aladdyn-widget')) {
+          const widgetScript = `
+<!-- Aladdyn Chatbot Widget -->
+<script src="${baseUrl}/widget.js?shop=${shop}&api=${baseUrl}" defer></script>
+<!-- End Aladdyn Chatbot Widget -->`
+
+          // Inject before closing </body> tag
+          themeContent = themeContent.replace('</body>', `${widgetScript}
+</body>`)
+
+          // Update theme file
+          await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json`, {
+            method: 'PUT',
+            headers: {
+              'X-Shopify-Access-Token': tokenData.access_token,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              asset: {
+                key: 'layout/theme.liquid',
+                value: themeContent
+              }
+            })
+          })
+
+          // Update shop record
+          await Shop.findOneAndUpdate(
+            { shopify_domain: shop },
+            { widget_injected: true, widget_injected_at: new Date() },
+            { new: true }
+          )
+
+          console.log('Widget auto-injected successfully')
+        }
+      }
+    } catch (widgetError) {
+      console.error('Widget auto-injection failed:', widgetError)
+      // Don't fail the installation if widget injection fails
+    }
+
     console.log('Redirecting to frontend...')
     res.redirect(`${process.env.APP_URL || 'http://localhost:3000'}/shopify/callback?shop=${shop}&success=true`)
   } catch (error) {
@@ -708,6 +777,209 @@ app.post('/api/store-customer-auth', async (req, res) => {
   } catch (error) {
     console.error('Store customer auth error:', error)
     res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// Inject widget script into shop theme
+app.post('/api/inject-widget', async (req, res) => {
+  try {
+    const { shop } = req.body
+
+    if (!shop) {
+      return res.status(400).json({ success: false, error: 'Shop domain required' })
+    }
+
+    const shopRecord = await Shop.findOne({ shopify_domain: shop })
+    if (!shopRecord) {
+      return res.status(404).json({ success: false, error: 'Shop not found' })
+    }
+
+    // Get the main theme
+    const themesResponse = await fetch(`https://${shop}/admin/api/2025-07/themes.json`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+
+    const themesData = await themesResponse.json()
+    const mainTheme = themesData.themes.find(theme => theme.role === 'main')
+
+    if (!mainTheme) {
+      return res.status(404).json({ success: false, error: 'Main theme not found' })
+    }
+
+    // Get theme.liquid file
+    const themeFileResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json?asset[key]=layout/theme.liquid`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+
+    const themeFileData = await themeFileResponse.json()
+    let themeContent = themeFileData.asset.value
+
+    // Check if widget is already injected
+    if (themeContent.includes('aladdyn-widget')) {
+      return res.json({ success: true, message: 'Widget already injected' })
+    }
+
+    // Create widget script tag
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://aladdynbe-production.up.railway.app'
+      : `http://localhost:${PORT}`
+    
+    const widgetScript = `
+<!-- Aladdyn Chatbot Widget -->
+<script src="${baseUrl}/widget.js?shop=${shop}&api=${baseUrl}" defer></script>
+<!-- End Aladdyn Chatbot Widget -->`
+
+    // Inject before closing </body> tag
+    themeContent = themeContent.replace('</body>', `${widgetScript}
+</body>`)
+
+    // Update theme file
+    const updateResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json`, {
+      method: 'PUT',
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        asset: {
+          key: 'layout/theme.liquid',
+          value: themeContent
+        }
+      })
+    })
+
+    if (!updateResponse.ok) {
+      throw new Error('Failed to update theme file')
+    }
+
+    // Update shop record
+    await Shop.findOneAndUpdate(
+      { shopify_domain: shop },
+      { widget_injected: true, widget_injected_at: new Date() },
+      { new: true }
+    )
+
+    res.json({ success: true, message: 'Widget injected successfully' })
+  } catch (error) {
+    console.error('Widget injection error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// Remove widget script from shop theme
+app.post('/api/remove-widget', async (req, res) => {
+  try {
+    const { shop } = req.body
+
+    if (!shop) {
+      return res.status(400).json({ success: false, error: 'Shop domain required' })
+    }
+
+    const shopRecord = await Shop.findOne({ shopify_domain: shop })
+    if (!shopRecord) {
+      return res.status(404).json({ success: false, error: 'Shop not found' })
+    }
+
+    // Get the main theme
+    const themesResponse = await fetch(`https://${shop}/admin/api/2025-07/themes.json`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+
+    const themesData = await themesResponse.json()
+    const mainTheme = themesData.themes.find(theme => theme.role === 'main')
+
+    if (!mainTheme) {
+      return res.status(404).json({ success: false, error: 'Main theme not found' })
+    }
+
+    // Get theme.liquid file
+    const themeFileResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json?asset[key]=layout/theme.liquid`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+
+    const themeFileData = await themeFileResponse.json()
+    let themeContent = themeFileData.asset.value
+
+    // Remove widget script
+    const widgetRegex = /<!-- Aladdyn Chatbot Widget -->.*?<!-- End Aladdyn Chatbot Widget -->/gs
+    themeContent = themeContent.replace(widgetRegex, '')
+
+    // Update theme file
+    const updateResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json`, {
+      method: 'PUT',
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        asset: {
+          key: 'layout/theme.liquid',
+          value: themeContent
+        }
+      })
+    })
+
+    if (!updateResponse.ok) {
+      throw new Error('Failed to update theme file')
+    }
+
+    // Update shop record
+    await Shop.findOneAndUpdate(
+      { shopify_domain: shop },
+      { widget_injected: false, widget_removed_at: new Date() },
+      { new: true }
+    )
+
+    res.json({ success: true, message: 'Widget removed successfully' })
+  } catch (error) {
+    console.error('Widget removal error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// Serve widget.js file
+app.get('/widget.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript')
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.sendFile(path.join(__dirname, '../public/widget.js'))
+})
+
+// Chat API endpoint
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message, shop } = req.body
+
+    if (!message || !shop) {
+      return res.status(400).json({ error: 'Message and shop are required' })
+    }
+
+    // Simple AI response (replace with actual AI integration)
+    const responses = [
+      "I'd be happy to help you with that! What specific product are you looking for?",
+      "Let me help you find the perfect item. Can you tell me more about what you need?",
+      "Great question! I can help you with product recommendations, store policies, and more.",
+      "I'm here to assist you with your shopping. What would you like to know?",
+      "Thanks for reaching out! How can I make your shopping experience better today?"
+    ]
+
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+
+    // Add a small delay to simulate processing
+    setTimeout(() => {
+      res.json({ response: randomResponse })
+    }, 1000)
+
+  } catch (error) {
+    console.error('Chat API error:', error)
+    res.status(500).json({ error: 'Failed to process message' })
   }
 })
 
