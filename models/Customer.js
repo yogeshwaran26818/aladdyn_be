@@ -18,6 +18,13 @@ const customerSchema = new mongoose.Schema({
   },
   session_id: {
     type: String
+  },
+  last_active: {
+    type: Date,
+    default: Date.now
+  },
+  cart_id: {
+    type: String
   }
 }, {
   timestamps: true
