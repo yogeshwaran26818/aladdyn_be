@@ -28,6 +28,9 @@ const shopSchema = new mongoose.Schema({
   },
   widget_removed_at: {
     type: Date
+  },
+  script_tag_id: {
+    type: String
   }
 }, {
   timestamps: true

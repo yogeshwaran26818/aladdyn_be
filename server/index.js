@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import Shop from '../models/Shop.js'
 import Customer from '../models/Customer.js'
+import Script from '../models/Script.js'
 
 
 
@@ -239,70 +240,84 @@ app.get('/api/auth', async (req, res) => {
 
 
 
-    // Auto-inject widget after successful installation
+    // Auto-inject widget after successful installation using ScriptTag API
     try {
-      console.log('Auto-injecting widget...')
+      console.log('Auto-injecting widget via ScriptTag API...')
       const baseUrl = process.env.NODE_ENV === 'production' 
         ? 'https://aladdynbe-production.up.railway.app'
         : `http://localhost:${PORT}`
       
-      // Get the main theme
-      const themesResponse = await fetch(`https://${shop}/admin/api/2025-07/themes.json`, {
+      const scriptUrl = `${baseUrl}/widget.js?shop=${shop}&api=${baseUrl}`
+      
+      // Create ScriptTag for automatic widget injection
+      const scriptTagResponse = await fetch(`https://${shop}/admin/api/2025-07/script_tags.json`, {
+        method: 'POST',
         headers: {
-          'X-Shopify-Access-Token': tokenData.access_token
-        }
-      })
-
-      const themesData = await themesResponse.json()
-      const mainTheme = themesData.themes.find(theme => theme.role === 'main')
-
-      if (mainTheme) {
-        // Get theme.liquid file
-        const themeFileResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json?asset[key]=layout/theme.liquid`, {
-          headers: {
-            'X-Shopify-Access-Token': tokenData.access_token
+          'X-Shopify-Access-Token': tokenData.access_token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          script_tag: {
+            event: 'onload',
+            src: scriptUrl,
+            display_scope: 'online_store'
           }
         })
+      })
 
-        const themeFileData = await themeFileResponse.json()
-        let themeContent = themeFileData.asset.value
+      if (scriptTagResponse.ok) {
+        const scriptTagData = await scriptTagResponse.json()
+        
+        // Store script in database
+        await Script.findOneAndUpdate(
+          { shopify_domain: shop },
+          {
+            shopify_domain: shop,
+            script_content: `<script src="${scriptUrl}" defer></script>`,
+            script_url: scriptUrl,
+            script_tag_id: scriptTagData.script_tag.id,
+            injection_method: 'script_tag',
+            is_active: true,
+            generated_at: new Date(),
+            last_updated: new Date()
+          },
+          { upsert: true, new: true }
+        )
+        
+        // Update shop record with script tag info
+        await Shop.findOneAndUpdate(
+          { shopify_domain: shop },
+          { 
+            widget_injected: true, 
+            widget_injected_at: new Date(),
+            script_tag_id: scriptTagData.script_tag.id
+          },
+          { new: true }
+        )
 
-        // Check if widget is not already injected
-        if (!themeContent.includes('aladdyn-widget')) {
-          const widgetScript = `
-<!-- Aladdyn Chatbot Widget -->
-<script src="${baseUrl}/widget.js?shop=${shop}&api=${baseUrl}" defer></script>
-<!-- End Aladdyn Chatbot Widget -->`
-
-          // Inject before closing </body> tag
-          themeContent = themeContent.replace('</body>', `${widgetScript}
-</body>`)
-
-          // Update theme file
-          await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json`, {
-            method: 'PUT',
-            headers: {
-              'X-Shopify-Access-Token': tokenData.access_token,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              asset: {
-                key: 'layout/theme.liquid',
-                value: themeContent
-              }
-            })
-          })
-
-          // Update shop record
-          await Shop.findOneAndUpdate(
-            { shopify_domain: shop },
-            { widget_injected: true, widget_injected_at: new Date() },
-            { new: true }
-          )
-
-          console.log('Widget auto-injected successfully')
-        }
-      }
+        console.log('Widget ScriptTag created and stored in DB:', scriptTagData.script_tag.id)
+      } else {
+        console.error('ScriptTag creation failed:', await scriptTagResponse.text())
+        
+        // Fallback to theme injection
+        console.log('Falling back to theme injection...')
+        await injectWidgetIntoTheme(shop, tokenData.access_token, baseUrl)
+        
+        // Store theme injection script in database
+        await Script.findOneAndUpdate(
+          { shopify_domain: shop },
+          {
+            shopify_domain: shop,
+            script_content: `<script src="${scriptUrl}" defer></script>`,
+            script_url: scriptUrl,
+            injection_method: 'theme_injection',
+            is_active: true,
+            generated_at: new Date(),
+            last_updated: new Date()
+          },
+          { upsert: true, new: true }
+        )
+      
     } catch (widgetError) {
       console.error('Widget auto-injection failed:', widgetError)
       // Don't fail the installation if widget injection fails
@@ -780,6 +795,82 @@ app.post('/api/store-customer-auth', async (req, res) => {
   }
 })
 
+// Fallback theme injection function
+async function injectWidgetIntoTheme(shop, accessToken, baseUrl) {
+  try {
+    // Get the main theme
+    const themesResponse = await fetch(`https://${shop}/admin/api/2025-07/themes.json`, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken
+      }
+    })
+
+    const themesData = await themesResponse.json()
+    const mainTheme = themesData.themes.find(theme => theme.role === 'main')
+
+    if (mainTheme) {
+      // Get theme.liquid file
+      const themeFileResponse = await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json?asset[key]=layout/theme.liquid`, {
+        headers: {
+          'X-Shopify-Access-Token': accessToken
+        }
+      })
+
+      const themeFileData = await themeFileResponse.json()
+      let themeContent = themeFileData.asset.value
+
+      // Check if widget is not already injected
+      if (!themeContent.includes('aladdyn-widget')) {
+        const widgetScript = `
+<!-- Aladdyn Chatbot Widget -->
+<script>
+  window.Shopify = window.Shopify || {};
+  {% if customer %}
+    window.Shopify.customer = {
+      id: {{ customer.id | json }},
+      email: {{ customer.email | json }},
+      first_name: {{ customer.first_name | json }},
+      last_name: {{ customer.last_name | json }}
+    };
+  {% endif %}
+  {% if cart %}
+    window.Shopify.cart = {
+      token: {{ cart.token | json }},
+      item_count: {{ cart.item_count | json }}
+    };
+  {% endif %}
+</script>
+<script src="${baseUrl}/widget.js?shop=${shop}&api=${baseUrl}" defer></script>
+<!-- End Aladdyn Chatbot Widget -->`
+
+        // Inject before closing </body> tag
+        themeContent = themeContent.replace('</body>', `${widgetScript}
+</body>`)
+
+        // Update theme file
+        await fetch(`https://${shop}/admin/api/2025-07/themes/${mainTheme.id}/assets.json`, {
+          method: 'PUT',
+          headers: {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            asset: {
+              key: 'layout/theme.liquid',
+              value: themeContent
+            }
+          })
+        })
+
+        console.log('Widget injected into theme successfully')
+      }
+    }
+  } catch (error) {
+    console.error('Theme injection error:', error)
+    throw error
+  }
+}
+
 // Inject widget script into shop theme
 app.post('/api/inject-widget', async (req, res) => {
   try {
@@ -945,6 +1036,36 @@ app.post('/api/remove-widget', async (req, res) => {
   }
 })
 
+// Get stored script for shop
+app.get('/api/script/:shop', async (req, res) => {
+  try {
+    const { shop } = req.params
+    
+    const script = await Script.findOne({ 
+      shopify_domain: shop,
+      is_active: true 
+    })
+    
+    if (!script) {
+      return res.status(404).json({ error: 'No active script found for this shop' })
+    }
+    
+    res.json({
+      success: true,
+      script: {
+        content: script.script_content,
+        url: script.script_url,
+        method: script.injection_method,
+        generated_at: script.generated_at,
+        script_tag_id: script.script_tag_id
+      }
+    })
+  } catch (error) {
+    console.error('Get script error:', error)
+    res.status(500).json({ error: 'Failed to retrieve script' })
+  }
+})
+
 // Serve widget.js file
 app.get('/widget.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript')
@@ -952,33 +1073,280 @@ app.get('/widget.js', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/widget.js'))
 })
 
-// Chat API endpoint
-app.post('/api/chat', async (req, res) => {
+// Enhanced Chat API with MCP Integration
+app.post('/api/chat/storefront', async (req, res) => {
   try {
-    const { message, shop } = req.body
+    const { message, shop, customer, cart, session } = req.body
 
     if (!message || !shop) {
       return res.status(400).json({ error: 'Message and shop are required' })
     }
 
-    // Simple AI response (replace with actual AI integration)
-    const responses = [
-      "I'd be happy to help you with that! What specific product are you looking for?",
-      "Let me help you find the perfect item. Can you tell me more about what you need?",
-      "Great question! I can help you with product recommendations, store policies, and more.",
-      "I'm here to assist you with your shopping. What would you like to know?",
-      "Thanks for reaching out! How can I make your shopping experience better today?"
-    ]
+    // Get shop record
+    const shopRecord = await Shop.findOne({ shopify_domain: shop })
+    if (!shopRecord) {
+      return res.status(404).json({ error: 'Shop not found' })
+    }
 
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+    // Store chat session
+    const chatSession = {
+      shop: shop,
+      message: message,
+      customer: customer,
+      cart: cart,
+      session: session,
+      timestamp: new Date()
+    }
 
-    // Add a small delay to simulate processing
-    setTimeout(() => {
-      res.json({ response: randomResponse })
-    }, 1000)
+    console.log('Chat session:', JSON.stringify(chatSession, null, 2))
+
+    // Process message with AI and MCP tools
+    const aiResponse = await processMessageWithAI(message, shop, customer, cart, shopRecord)
+
+    res.json({
+      success: true,
+      response: aiResponse.message,
+      cartId: aiResponse.cartId || cart?.cartId,
+      actions: aiResponse.actions || []
+    })
 
   } catch (error) {
-    console.error('Chat API error:', error)
+    console.error('Storefront chat error:', error)
+    res.status(500).json({ error: 'Failed to process message' })
+  }
+})
+
+// AI Processing with MCP Tools
+async function processMessageWithAI(message, shop, customer, cart, shopRecord) {
+  try {
+    // Prepare context for AI
+    const context = {
+      shop: shop,
+      customer: customer,
+      cart: cart,
+      message: message
+    }
+
+    // Determine intent and call appropriate MCP tools
+    const intent = analyzeIntent(message)
+    let mcpData = {}
+    
+    switch (intent) {
+      case 'product_search':
+        mcpData = await searchShopCatalog(message, shopRecord)
+        break
+      case 'cart_inquiry':
+        mcpData = await getCartContents(cart?.cartId, shopRecord)
+        break
+      case 'policy_question':
+        mcpData = await searchPoliciesAndFAQs(message, shopRecord)
+        break
+      default:
+        mcpData = { type: 'general' }
+    }
+
+    // Generate AI response using OpenAI
+    const aiResponse = await generateAIResponse(message, context, mcpData)
+    
+    return aiResponse
+
+  } catch (error) {
+    console.error('AI processing error:', error)
+    return {
+      message: "I'm here to help! Could you please rephrase your question?",
+      cartId: cart?.cartId
+    }
+  }
+}
+
+// Intent Analysis
+function analyzeIntent(message) {
+  const lowerMessage = message.toLowerCase()
+  
+  if (lowerMessage.includes('product') || lowerMessage.includes('find') || lowerMessage.includes('search') || lowerMessage.includes('looking for')) {
+    return 'product_search'
+  }
+  if (lowerMessage.includes('cart') || lowerMessage.includes('checkout') || lowerMessage.includes('buy')) {
+    return 'cart_inquiry'
+  }
+  if (lowerMessage.includes('policy') || lowerMessage.includes('return') || lowerMessage.includes('shipping') || lowerMessage.includes('refund')) {
+    return 'policy_question'
+  }
+  
+  return 'general'
+}
+
+// MCP Tool: Search Shop Catalog
+async function searchShopCatalog(query, shopRecord) {
+  try {
+    const response = await fetch(`https://${shopRecord.shopify_domain}/admin/api/2025-07/products.json?limit=10`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+    
+    const data = await response.json()
+    return {
+      type: 'product_search',
+      products: data.products?.slice(0, 5) || [],
+      query: query
+    }
+  } catch (error) {
+    console.error('Product search error:', error)
+    return { type: 'product_search', products: [], error: error.message }
+  }
+}
+
+// MCP Tool: Get Cart Contents
+async function getCartContents(cartId, shopRecord) {
+  if (!cartId || !shopRecord.storefront_access_token) {
+    return { type: 'cart', items: [], total: '0.00' }
+  }
+
+  try {
+    const cartQuery = `
+      query getCart($cartId: ID!) {
+        cart(id: $cartId) {
+          id
+          totalQuantity
+          estimatedCost {
+            totalAmount {
+              amount
+              currencyCode
+            }
+          }
+          lines(first: 10) {
+            edges {
+              node {
+                quantity
+                merchandise {
+                  ... on ProductVariant {
+                    product {
+                      title
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `
+
+    const response = await fetch(`https://${shopRecord.shopify_domain}/api/2024-07/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Storefront-Access-Token': shopRecord.storefront_access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: cartQuery,
+        variables: { cartId }
+      })
+    })
+
+    const data = await response.json()
+    return {
+      type: 'cart',
+      cart: data.data?.cart || null
+    }
+  } catch (error) {
+    console.error('Cart fetch error:', error)
+    return { type: 'cart', cart: null, error: error.message }
+  }
+}
+
+// MCP Tool: Search Policies and FAQs
+async function searchPoliciesAndFAQs(query, shopRecord) {
+  try {
+    const response = await fetch(`https://${shopRecord.shopify_domain}/admin/api/2025-07/policies.json`, {
+      headers: {
+        'X-Shopify-Access-Token': shopRecord.shopify_access_token
+      }
+    })
+    
+    const data = await response.json()
+    return {
+      type: 'policies',
+      policies: data.policies || [],
+      query: query
+    }
+  } catch (error) {
+    console.error('Policies search error:', error)
+    return { type: 'policies', policies: [], error: error.message }
+  }
+}
+
+// Generate AI Response using OpenAI
+async function generateAIResponse(message, context, mcpData) {
+  try {
+    const systemPrompt = `You are Genie, an AI shopping assistant for ${context.shop}. 
+    
+Customer context:
+    - Logged in: ${context.customer?.isLoggedIn ? 'Yes' : 'No'}
+    - Customer ID: ${context.customer?.customerId || 'Guest'}
+    - Cart ID: ${context.cart?.cartId || 'None'}
+    
+    Available data: ${JSON.stringify(mcpData, null, 2)}
+    
+    Respond helpfully and naturally. If you have product data, recommend specific items. If you have cart data, reference their current items. Keep responses concise and actionable.`
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.VITE_OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        max_tokens: 200,
+        temperature: 0.7
+      })
+    })
+
+    const aiData = await response.json()
+    
+    return {
+      message: aiData.choices?.[0]?.message?.content || "I'm here to help! How can I assist you today?",
+      cartId: context.cart?.cartId
+    }
+
+  } catch (error) {
+    console.error('OpenAI API error:', error)
+    return {
+      message: "I'm here to help! How can I assist you with your shopping today?",
+      cartId: context.cart?.cartId
+    }
+  }
+}
+
+// Legacy chat endpoint (keep for backward compatibility)
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message, shop } = req.body
+    
+    // Redirect to new endpoint
+    const response = await fetch(`${req.protocol}://${req.get('host')}/api/chat/storefront`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        shop,
+        customer: { isLoggedIn: false },
+        cart: { cartId: null },
+        session: { timestamp: new Date().toISOString() }
+      })
+    })
+    
+    const data = await response.json()
+    res.json({ response: data.response })
+    
+  } catch (error) {
+    console.error('Legacy chat error:', error)
     res.status(500).json({ error: 'Failed to process message' })
   }
 })

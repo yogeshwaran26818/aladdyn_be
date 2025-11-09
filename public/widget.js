@@ -36,6 +36,68 @@
         return;
     }
 
+    // Customer and Cart Detection
+    let customerData = {
+        isLoggedIn: false,
+        customerId: null,
+        customerAccessToken: null,
+        cartId: null,
+        email: null
+    };
+
+    // Detect logged-in customer from Shopify Liquid (if available)
+    if (window.Shopify && window.Shopify.customer) {
+        customerData.isLoggedIn = true;
+        customerData.customerId = window.Shopify.customer.id;
+        customerData.email = window.Shopify.customer.email;
+    }
+
+    // Get or create cart ID
+    function getOrCreateCartId() {
+        // Try to get existing cart ID from localStorage
+        let cartId = localStorage.getItem('aladdyn_cart_id');
+        
+        // Try to get from Shopify's cart object
+        if (!cartId && window.Shopify && window.Shopify.cart) {
+            cartId = window.Shopify.cart.token;
+        }
+        
+        // Generate new cart ID if none exists
+        if (!cartId) {
+            cartId = 'cart_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+        
+        // Store in localStorage
+        localStorage.setItem('aladdyn_cart_id', cartId);
+        customerData.cartId = cartId;
+        
+        return cartId;
+    }
+
+    // Initialize cart ID
+    getOrCreateCartId();
+
+    // Try to get customer access token from session storage or cookies
+    function getCustomerAccessToken() {
+        // Check session storage
+        let token = sessionStorage.getItem('customerAccessToken');
+        if (token) {
+            customerData.customerAccessToken = token;
+            return token;
+        }
+        
+        // Check if available in Shopify object
+        if (window.Shopify && window.Shopify.customerAccessToken) {
+            token = window.Shopify.customerAccessToken;
+            customerData.customerAccessToken = token;
+            return token;
+        }
+        
+        return null;
+    }
+
+    getCustomerAccessToken();
+
     function initializeChatbot() {
         // Create widget container
         const widgetContainer = createWidgetContainer();
@@ -819,19 +881,51 @@
         messages.scrollTop = messages.scrollHeight;
     }
 
-    // Send message to backend
+    // Send message to backend with customer/cart context
     async function sendMessage(message) {
         try {
             addMessage(message, false);
             
-            const response = await fetch(apiBaseUrl + '/api/chatbot/storefront', {
+            // Prepare chat context
+            const chatContext = {
+                message: message,
+                shop: shop,
+                customer: {
+                    isLoggedIn: customerData.isLoggedIn,
+                    customerId: customerData.customerId,
+                    customerAccessToken: customerData.customerAccessToken,
+                    email: customerData.email
+                },
+                cart: {
+                    cartId: customerData.cartId
+                },
+                session: {
+                    timestamp: new Date().toISOString(),
+                    userAgent: navigator.userAgent,
+                    url: window.location.href
+                }
+            };
+            
+            const response = await fetch(apiBaseUrl + '/api/chat/storefront', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: message, shop: shop })
+                body: JSON.stringify(chatContext)
             });
             
             const data = await response.json();
-            addMessage(data.success && data.response ? data.response : 'Sorry, I encountered an error. Please try again.', true);
+            
+            // Handle response
+            if (data.success && data.response) {
+                addMessage(data.response, true);
+                
+                // Update cart ID if provided in response
+                if (data.cartId && data.cartId !== customerData.cartId) {
+                    customerData.cartId = data.cartId;
+                    localStorage.setItem('aladdyn_cart_id', data.cartId);
+                }
+            } else {
+                addMessage('Sorry, I encountered an error. Please try again.', true);
+            }
         } catch (error) {
             console.error('Aladdyn chatbot error:', error);
             addMessage('Sorry, I am having trouble connecting. Please try again.', true);
